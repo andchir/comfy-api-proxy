@@ -77,6 +77,20 @@ _MAX_CONCURRENT_STREAMS = 8
 
 _RETENTION = timedelta(hours=24)
 
+
+def _generated_upload_filename(filename: str | None, content_type: str) -> str:
+    """Generate a UUID filename while preserving a known file extension."""
+    extension = ""
+    if filename:
+        # Multipart filenames may contain either POSIX or Windows separators.
+        basename = filename.replace("\\", "/").rsplit("/", 1)[-1]
+        suffix = Path(basename).suffix
+        if suffix and suffix[1:].isalnum():
+            extension = suffix.lower()
+    if not extension and content_type:
+        extension = mimetypes.guess_extension(content_type.split(";", 1)[0].strip()) or ""
+    return f"{uuid.uuid4()}{extension}"
+
 # Idempotency-Key bounds. A per-instance self-hosted proxy holds claimed keys
 # in memory, so cap both the length of any single key and the total number
 # retained — otherwise a caller could grow the set without bound (memory
@@ -1010,6 +1024,7 @@ class Proxy:
         size = 0
         digest = blake3.blake3()
         part_content_type = "application/octet-stream"
+        upload_filename: str | None = None
         expires_in: int | None = None
 
         try:
@@ -1026,6 +1041,7 @@ class Proxy:
                     continue
                 if part.name == "file":
                     part_content_type = part.headers.get("Content-Type", part_content_type)
+                    upload_filename = part.filename
                     fd, tmp_path = tempfile.mkstemp(prefix="comfy-upload-")
                     with os.fdopen(fd, "wb") as f:
                         while True:
@@ -1055,7 +1071,9 @@ class Proxy:
                 return _error(422, "invalid_request", "Missing 'file' part.")
             file_path = fields.get("file_path")
             if not file_path:
-                return _error(422, "invalid_request", "Missing 'file_path'.")
+                file_path = _generated_upload_filename(
+                    upload_filename, fields.get("content_type") or part_content_type
+                )
             # Validate + classify the path ONCE, before deciding which branch
             # handles it (model-directory placement vs. plain input upload).
             # This must happen before that decision, not after: a path like
