@@ -615,8 +615,13 @@ class Proxy:
         return record.file_path
 
     def _rewrite_asset_refs(self, node: Any, missing: list[str]) -> Any:
-        """Recursively replace core/ASSET refs in a workflow with the
-        filename string ComfyUI expects, collecting unresolvable ids."""
+        """Recursively replace asset refs with the filename ComfyUI expects.
+
+        ``core/ASSET`` remains supported for compatibility.  ``LoadImage``
+        also accepts the shorter ``asset:<id>`` string form on its ``image``
+        input; the special handling is deliberately limited to that node and
+        field so ordinary text values elsewhere in a workflow are untouched.
+        """
         if _is_asset_ref(node):
             info = node.get("info")
             if not isinstance(info, dict):
@@ -630,7 +635,26 @@ class Proxy:
                 return node
             return resolved
         if isinstance(node, dict):
-            return {k: self._rewrite_asset_refs(v, missing) for k, v in node.items()}
+            rewritten: dict[str, Any] = {}
+            is_load_image = node.get("class_type") == "LoadImage"
+            inputs = node.get("inputs")
+            for key, value in node.items():
+                if is_load_image and key == "inputs" and isinstance(inputs, dict):
+                    rewritten_inputs = dict(inputs)
+                    image = inputs.get("image")
+                    if isinstance(image, str) and image.startswith("asset:"):
+                        asset_id = image.removeprefix("asset:")
+                        resolved = (
+                            self._resolve_asset_ref({"id": asset_id}) if asset_id else None
+                        )
+                        if resolved is None:
+                            missing.append(asset_id or "<empty asset reference>")
+                        else:
+                            rewritten_inputs["image"] = resolved
+                    rewritten[key] = self._rewrite_asset_refs(rewritten_inputs, missing)
+                else:
+                    rewritten[key] = self._rewrite_asset_refs(value, missing)
+            return rewritten
         if isinstance(node, list):
             return [self._rewrite_asset_refs(v, missing) for v in node]
         return node

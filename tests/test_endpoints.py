@@ -151,6 +151,33 @@ def test_upload_run_with_asset_ref_download(stack):
     assert content.startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_upload_run_with_short_asset_ref_download(stack):
+    _, asset, _ = stack.upload("cat.png", _PNG, "image/png", tags="input")
+    workflow = {
+        "1": {
+            "class_type": "LoadImage",
+            "inputs": {"image": f"asset:{asset['id']}"},
+        },
+        "9": {"class_type": "SaveImage", "inputs": {"images": ["1", 0]}},
+    }
+    status, job, raw = stack.request("POST", "/api/v2/jobs", {"workflow": workflow})
+    assert status == 201, raw
+    job = _poll_until_terminal(stack, job)
+    assert job["status"] == "succeeded", job.get("error")
+
+
+def test_unresolvable_short_asset_ref_rejected(stack):
+    workflow = {
+        "1": {
+            "class_type": "LoadImage",
+            "inputs": {"image": "asset:asset_ghost"},
+        }
+    }
+    status, body, raw = stack.request("POST", "/api/v2/jobs", {"workflow": workflow})
+    assert status == 422, raw
+    assert body["error"]["code"] == "missing_asset"
+
+
 def test_unresolvable_asset_ref_rejected(stack):
     workflow = {
         "1": {
