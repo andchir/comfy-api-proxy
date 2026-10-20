@@ -15,6 +15,7 @@ from aiohttp.test_utils import make_mocked_request
 
 from comfy_api_proxy.auth import make_bearer_auth_middleware
 from comfy_api_proxy.cli import main
+from comfy_api_proxy.middleware import make_origin_only_middleware
 
 
 async def _invoke(mw, headers, path="/api/v2/jobs/x"):
@@ -81,6 +82,24 @@ async def test_asset_content_auth_exception_is_opt_in_and_exact():
         resp, ran = await _invoke(mw, {}, path=path)
         assert resp.status == 401, path
         assert not ran
+
+
+async def test_asset_content_skip_auth_allows_cross_site_image_request():
+    mw = make_origin_only_middleware((), asset_skip_auth_header=True)
+    request = make_mocked_request(
+        "GET",
+        "/api/v2/assets/asset-id/content",
+        headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Dest": "image"},
+    )
+    called = {"v": False}
+
+    async def handler(_req):
+        called["v"] = True
+        return web.Response(status=200)
+
+    resp = await mw(request, handler)
+    assert resp.status == 200
+    assert called["v"]
 
 
 async def test_non_v2_path_bypasses_the_gate():

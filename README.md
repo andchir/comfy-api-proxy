@@ -195,7 +195,9 @@ configuration:
   authenticate against. With `--asset-skip-auth-header`, GET/HEAD asset content
   downloads also bypass bearer authentication. Treat asset URLs as secrets in
   this mode: uploaded IDs are random UUIDs and output IDs are HMAC-signed, but
-  anyone with a URL can download the bytes. `url_expires_at` does not enforce
+  anyone with a URL can download the bytes. Cross-site browser image/media
+  requests to these URLs are also allowed, since browsers may omit `Origin`
+  and send only `Sec-Fetch-Site: cross-site`. `url_expires_at` does not enforce
   expiration for signed output IDs.
 - **A default-on origin-check middleware** — ported from ComfyUI core's own
   `create_origin_only_middleware` — rejects cross-site browser requests even

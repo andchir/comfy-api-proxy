@@ -158,7 +158,11 @@ def _run_foreground(args: argparse.Namespace) -> int:
     middlewares: list = []
     if cors_origins:
         middlewares.append(make_cors_middleware(cors_origins))
-    middlewares.append(make_origin_only_middleware(cors_origins))
+    middlewares.append(
+        make_origin_only_middleware(
+            cors_origins, asset_skip_auth_header=args.asset_skip_auth_header
+        )
+    )
     if args.token:
         middlewares.append(
             make_bearer_auth_middleware(args.token, asset_skip_auth_header=args.asset_skip_auth_header)
