@@ -133,13 +133,17 @@ def _iso(dt: datetime) -> str:
 
 def _external_base(request: web.Request) -> str:
     """The absolute base URL clients reached us on, from the request's scheme and
-    Host header. Content and job links are built from this so the contract's
+    Host header. When TLS is terminated by a reverse proxy, use its validated
+    ``X-Forwarded-Proto`` value so generated links keep the public ``https``
+    scheme. Content and job links are built from this so the contract's
     absolute-URI fields (Output.url / Asset.url) are actually absolute — and so a
-    client on http://host:port follows links back to the same origin. No
-    X-Forwarded-* handling is wired, so those headers are ignored (a client can't
-    point the emitted links at another origin); front this with a TLS terminator
-    only if you add explicit forwarded-header trust."""
-    return f"{request.scheme}://{request.host}"
+    client on http://host:port follows links back to the same origin. The proxy
+    deployment must overwrite, rather than append to, this header at the TLS
+    terminator; otherwise a direct client could influence the generated scheme."""
+    scheme = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
+    if scheme not in {"http", "https"}:
+        scheme = request.scheme
+    return f"{scheme}://{request.host}"
 
 
 def _b64url_decode(s: str) -> bytes:

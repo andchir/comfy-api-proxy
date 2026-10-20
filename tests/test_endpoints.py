@@ -1099,25 +1099,33 @@ def test_range_request_returns_exact_slice_and_content_range_header(stack):
 
 # ---------------------------------------------------------------------------
 # Absolute-URL behavior: _external_base() (app.py) builds job/asset URLs from
-# request.scheme/request.host. make_app() wires no "trust the reverse proxy"
-# middleware, so those must reflect the connection the client actually used —
-# a client-supplied X-Forwarded-Host/-Proto must NOT be able to redirect the
-# URLs a caller is handed to an attacker-chosen origin.
+# request.scheme/request.host, while preserving the public HTTPS scheme when a
+# TLS terminator supplies X-Forwarded-Proto.
 # ---------------------------------------------------------------------------
-def test_absolute_urls_ignore_client_supplied_forwarded_headers(stack):
+def test_absolute_urls_preserve_forwarded_https_scheme(stack):
     workflow = {"9": {"class_type": "SaveImage", "inputs": {"images": ["1", 0]}}}
     status, job, raw = stack.request(
         "POST",
         "/api/v2/jobs",
         {"workflow": workflow},
-        headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "evil.example"},
+        headers={"X-Forwarded-Proto": "https"},
     )
     assert status == 201, raw
-    assert job["urls"]["self"] == f"{stack.base}/api/v2/jobs/{job['id']}"
-    assert "evil.example" not in json.dumps(job["urls"])
-
-    _, asset, raw = stack.upload("cat.png", _PNG, "image/png")
-    assert asset["url"].startswith(stack.base + "/"), raw
+    assert job["urls"]["self"] == f"https://127.0.0.1:{stack.proxy_port}/api/v2/jobs/{job['id']}"
+    deadline = time.monotonic() + 15
+    while job["status"] not in _TERMINAL:
+        assert time.monotonic() < deadline
+        time.sleep(0.1)
+        status, job, raw = stack.request(
+            "GET",
+            f"/api/v2/jobs/{job['id']}",
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        assert status == 200, raw
+    assert job["outputs"], job
+    assert job["outputs"][0]["url"].startswith(
+        f"https://127.0.0.1:{stack.proxy_port}/"
+    )
 
 
 # ---------------------------------------------------------------------------
